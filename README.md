@@ -1,2 +1,2 @@
 # learning_notes
-About machine learning, deep learning and so on
+Some learning notes with regard to ML/DL/NLP/CV.
