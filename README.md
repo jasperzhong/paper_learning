@@ -1,2 +1,2 @@
 # learning_notes
-Some learning notes with regard to ML/DL/NLP/CV.
+Read some papers and take some notes.

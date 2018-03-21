@@ -1,0 +1,165 @@
+\documentclass{article}
+    \usepackage{ctex}
+    \title{alphago论文学习}
+    \author{Yuchen Zhong}
+    \begin{document}
+        \maketitle
+
+        \section{alphago}
+            用传统的办法，主要是搜索，但是对于围棋这种depth和breadth都很大的棋类
+            来说，是非常困难的。目前最强的传统方法只达到了业余水平。
+
+            本文训练了4个神经网络:
+            \begin{itemize}
+                \item $p_{\sigma}$: 用Supervised learning学习人类棋谱
+                \item $p_{\pi}$: 同上，但是神经网络更浅，速度更快，称为快速下子(rollouts)
+                \item $p_{\rho}$: 强化学习，左右互搏来optimise
+                \item $v_{\theta}$:价值网络，根据局面算出胜率,predict winner
+            \end{itemize}
+
+            第一步是监督学习,
+            Supervised Learning主要是用了CNN训练一个策略网络,
+            输入是19x19x48的tensor. 为什么维度
+            这么高呢？ 19x19是棋盘大小，48包括了各种信息(黑子，白子，打吃，征吃等等).
+            网络结构是13层，最后一层是softmax，输出是各个可下点的概率值$p(a|s)$.
+
+            然后用人类下的位置作为labels, 用的是随机梯度上升来训练.目标是maximize
+            人类大师下的位置的概率值.权值$\sigma$用随机梯度上升的修改:
+
+            \begin{equation}
+                \Delta \sigma \propto \frac{\partial log p_{\sigma(a|s)}}{\partial \sigma}
+            \end{equation}
+
+            
+
+            学习了3千万步的围棋走法后，这个策略网络可以模拟人类落子57\%正确率.但是
+            缺点是速度太慢.所以还训练了一个更快的但是准确率所有降低的快速下子策略网络
+            (rollout policy network).
+
+            第二步是强化学习，是为了进一步提高policy network的能力,
+            就是从和上一步最终得到的神经网络开始训练，然后随机从之前迭代中训练的
+            某个策略网络进行对弈(随机是为了防止过拟合)
+            
+            虽然网络结构和SL相同，但是目标不再相同.SL的目标是模拟人类的下棋,但是
+            RL的目的是为了赢棋. 它的方法是定义了一个reward function $r(s_t)$.
+            T代表终止的步骤,当$t < T$时,那么$r(s_t)=0$ 每一步的收益定义为
+            $z_t=\pm r(s_T)$
+            如果赢棋,那么为+1；输棋就为-1.权值修改如下:
+
+            \begin{equation}
+                \Delta \rho \propto \frac{\partial log p_{\sigma(a_t|s_t)}}{\partial \rho}z_t
+            \end{equation}
+
+            乘以$z_t$是为了让网络朝着赢棋的方向训练.
+
+            这样训练出来的RL策略网络，对战SL策略网络就有80\%的胜率了.而且对战传统
+            搜索方法的围棋AI也有85\%的胜率.
+
+            第三步是训练value network,
+            首先当然是要定义什么是value,
+            \begin{equation}
+                v^{p}(s) = E[z_t|s_t=s,a_{t...T}\in p]
+            \end{equation}
+            意思就是给定策略方案p,从状态s出发一直到结束的期望收益
+
+            当然我们是不知道最优的方案p是什么，所以只能用当前最强的RL策略
+            网络来计算一个棋面的价值$ v^{p_\rho}(s)$.
+            然后训练一个value network来拟合,即
+            $v_\theta \approx v^{p_\rho}(s) \approx v^*(s)$
+
+            Value network也是一个CNN，但是输出是一个神经元，也就是一个标量，
+            代表价值.cost function就用MSE,然后用SGD来收敛.
+
+            \begin{equation}
+                \Delta \theta \propto = \frac{\partial v_\theta(s)}{\partial \theta}(z - v_\theta(s))
+            \end{equation}
+
+            第四步就是MCTS(蒙特卡洛搜索)了.
+            MCTS主要分为4步:
+
+            \begin{enumerate}
+                \item selection:首先每个节点(论文中是边，这个没有区别)都记录三个值:
+                \begin{itemize}
+                    \item $Q(s,a)$action value
+                    \item $N(s,a)$visit count
+                    \item $P(s,a)$prior probability
+                    计算公式后面会谈到.
+
+                    每次模拟从当前局面开始.在第t步的时候，根据如下公式选择$a_t$
+                    \begin{equation}
+                        a_t = \arg\max_a(Q(s_t,a)+u(s_t,a))
+                    \end{equation}
+
+                    其中
+                    \begin{equation}
+                        u(s,a) \propto \frac{P(s,a)}{1+N(s,a)}
+                    \end{equation}
+
+                    $u(s,a)$用了一种反馈的思想，就是访问地越多，下轮中就越难访问，
+                    而先验概率越大，下轮中就越容易访问.
+                    （分母中的1是为了防止除零)
+                \end{itemize}
+                \item expansion:根据如上方法终止于叶子节点，局面为$s_L$.这时候要对叶子节点进行
+                expansion.怎么拓展呢？使用SL策略网络算出$p(a|s_L)$,把这个顺便
+                作为先验概率$P(s_L,a)$
+                \item simulation:一方面用快速下子策略网络(rollout)一直模拟到棋局结束.
+                得到一个反馈($z_L$),另一方面用value网络来评估出一个value，然后总的value
+                是二者的加权平均(参数$\lambda$),
+                \begin{equation}
+                    V(s_L) = (1-\lambda)v_\theta(S_L) + \lambda z_L
+                \end{equation}
+                后文提到$\lambda$取值0.5表现最好
+                \item backpropagation:最后把模拟路径上所有的节点的访问次数增加1，
+                同时更新Q值，形式化描述如下:
+                \begin{equation}
+                    N(s,a) = \sum_{i=1}^{n}1(s,a,i) 
+                \end{equation}
+                \begin{equation}
+                    Q(s,a) = \frac{1}{N(s,a)} \sum_{i=1}^{n}1(s,a,i)V(s_{L}^i)
+                \end{equation}
+                
+                其中,$s_{L}^i$是第i次模拟中的叶子节点.
+                
+                模拟多次后，采用root下面访问最多的节点为下一步的走法.
+                (理由很简单，访问次数和访问概率是成反比的，所以访问次数最多证明是best move)
+
+                看到这里不免有个疑问，为什么不采用RL却用SL呢？文中提到，是因为SL performed better
+                可能是因为人类是选择了几步有希望的棋，但是RL只选择当前最优.
+
+                所以纵观alphago，主要是以MCTS为主要框架，SL来算先验概率,rollout和value network
+                来评估局面, RL主要是用来产生训练value network的数据.
+
+                \section{alphago zero}
+
+                如果说alphago的算法比较累赘的话，那么alphago zero的算法极为简洁.
+                总的来讲就是ResNet + MCTS 
+                
+                ResNet的权重参数为$\theta$,输入是19x19x17(比alphago降低了很多)的棋面,
+                输出有两种值,一种为可能落子点的概率$p(a|s)$，另一个就是胜率$v(s)$.
+                (看到这里，感觉就是把alphago的SL和value network 合并了)
+                这个网络称为$f_\theta$
+
+                这里要注意的是，既然不用人类棋谱，那么棋谱从哪来呢？答案就是机器自我对弈生成
+                棋谱.当然一开始生成的棋谱都是很弱智的,不过在短短40天内，就能超越人类水平，
+                进步还是非常神速.
+
+                然后利用MCTS进行下棋，过程和alphago类似,不过在simulation那步，
+                用$f_\theta$代替SL.同样,输出的概率作为先验概率,但是评估就直接用
+                $f_\theta$算出来的v了.后面过程和alphago一样.
+
+                这样用更新的MCTS在来下棋，下好的棋谱再来训练ResNet，如此循环，
+                棋力日强.不仅发现了已有的人类定式，甚至发现了新的定式.
+
+                其实看到这里，就会发现其实alphago zero的算法其实没有什么突破，就是用
+                resnet替代了之前的SL,rollout以及value network罢了.
+                
+                但是,最让人震惊
+                的在于，即便用机器的对战棋谱，居然还能收敛！！!如果没有强大GPU来验证，
+                \textbf{恐怕
+                真是贫穷限制了我的想象力.}
+
+
+
+            \end{enumerate}
+
+        \end{document}
