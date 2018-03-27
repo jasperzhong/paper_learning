@@ -1,0 +1,9 @@
+\beamer@sectionintoc {1}{Introduction}{3}{0}{1}
+\beamer@sectionintoc {2}{Question Classification}{4}{0}{2}
+\beamer@subsectionintoc {2}{1}{Question Hierarchy}{4}{0}{2}
+\beamer@subsectionintoc {2}{2}{The Ambiguity Problem}{5}{0}{2}
+\beamer@sectionintoc {3}{Learning a Question Classifiers}{6}{0}{3}
+\beamer@subsectionintoc {3}{1}{Process}{6}{0}{3}
+\beamer@subsectionintoc {3}{2}{Features}{7}{0}{3}
+\beamer@subsectionintoc {3}{3}{Decision Model}{8}{0}{3}
+\beamer@sectionintoc {4}{Results}{9}{0}{4}
